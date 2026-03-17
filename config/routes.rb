@@ -5,5 +5,5 @@ Qedit::Engine.routes.draw do
   get  "file",         to: "editor#show"
   put  "file",         to: "editor#update"
 
-  get  "monaco/*path", to: "monaco#serve", format: false
+  get  "monaco/*path", to: "monaco#serve", format: false, as: :monaco
 end
