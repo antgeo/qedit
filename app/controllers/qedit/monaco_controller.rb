@@ -1,6 +1,5 @@
 module Qedit
   class MonacoController < ApplicationController
-    protect_from_forgery with: :null_session
     skip_before_action :verify_authenticity_token
 
     MONACO_ROOT = Qedit::Engine.root.join("vendor", "monaco-editor").freeze

@@ -199,6 +199,31 @@
       gap: 5px;
       opacity: 0.95;
     }
+
+    #server-status {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-left: auto;
+      opacity: 0.95;
+    }
+
+    #server-status .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #4ec9b0;
+      flex-shrink: 0;
+    }
+
+    #server-status.offline .dot  { background: #f48771; }
+    #server-status.offline .label { opacity: 1; }
+
+    #server-status .label {
+      opacity: 0;
+      transition: opacity 0.2s;
+      font-size: 11px;
+    }
   </style>
   <link rel="stylesheet" href="<%= qedit.monaco_path("min/vs/editor/editor.main.css") %>">
 </head>
@@ -233,6 +258,10 @@
       <% if @git_branch.present? %>
         <span id="git-branch">⎇ <%= @git_branch %></span>
       <% end %>
+      <span id="server-status">
+        <span class="dot"></span>
+        <span class="label">Server offline</span>
+      </span>
     </div>
   </div>
 
@@ -246,10 +275,11 @@
     (function() {
       'use strict';
 
-      const BASE      = "<%= qedit.root_path.chomp('/') %>";
+      const BASE      = "<%= j(qedit.root_path.chomp('/')) %>";
       const FILES_URL = BASE + "/files";
       const FILE_URL  = BASE + "/file";
       const LINT_URL  = BASE + "/lint";
+      const PING_URL  = BASE + "/ping";
 
       let monacoEditor = null;
 
@@ -381,7 +411,6 @@
         const activeEl = elTabBar.querySelector('.tab.active');
         if (activeEl) activeEl.scrollIntoView({ inline: 'nearest' });
 
-        console.log('[switchToTab] calling lintModel for', tab.path);
         lintModel(tab);
       }
 
@@ -427,6 +456,7 @@
           })
           .catch(() => {
             elTree.innerHTML = '<div class="tree-item" style="color:#f44;">Failed to load files</div>';
+            setServerStatus(false);
           });
       }
 
@@ -493,26 +523,23 @@
             tabs.push(tab);
             switchToTab(tab);
           })
-          .catch(() => setStatus('Failed to load file', true))
+          .catch(() => { setStatus('Failed to load file', true); setServerStatus(false); })
           .finally(() => elLoading.classList.remove('visible'));
       }
 
       function lintModel(tab) {
-        if (!tab || !tab.model) { console.log('[lint] no tab/model'); return; }
+        if (!tab || !tab.model) return;
         if (!tab.path.match(/\.rb$/)) {
-          console.log('[lint] skipping non-ruby:', tab.path);
           monaco.editor.setModelMarkers(tab.model, 'rubocop', []);
           return;
         }
-        console.log('[lint] fetching', LINT_URL, 'for', tab.path);
         fetch(LINT_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({ path: tab.path, content: tab.model.getValue() }).toString()
         })
-          .then(function(r) { console.log('[lint] response status:', r.status); return r.json(); })
+          .then(function(r) { return r.json(); })
           .then(function(diagnostics) {
-            console.log('[lint] diagnostics:', diagnostics);
             if (tab.model.isDisposed()) return;
             monaco.editor.setModelMarkers(tab.model, 'rubocop', diagnostics.map(function(d) {
               return {
@@ -525,7 +552,7 @@
               };
             }));
           })
-          .catch(function(e) { console.log('[lint] error:', e); });
+          .catch(function() { setServerStatus(false); });
       }
 
       function saveCurrentFile() {
@@ -558,6 +585,7 @@
           .catch(() => {
             setStatus('Save failed', true);
             elBtnSave.disabled = false;
+            setServerStatus(false);
           });
       }
 
@@ -568,6 +596,26 @@
         elStatusMsg.textContent = msg;
         elStatusMsg.style.color = isError ? '#f48771' : '#4ec9b0';
       }
+
+      // ── Server status ─────────────────────────────────────────────────
+      const elServerStatus = document.getElementById('server-status');
+
+      function setServerStatus(online) {
+        if (online) {
+          elServerStatus.classList.remove('offline');
+        } else {
+          elServerStatus.classList.add('offline');
+        }
+      }
+
+      function pollServer() {
+        fetch(PING_URL, { method: 'GET', cache: 'no-store' })
+          .then(function(r) { setServerStatus(r.ok); })
+          .catch(function()  { setServerStatus(false); });
+      }
+
+      pollServer();
+      setInterval(pollServer, 10000);
 
       function escHtml(str) {
         return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');

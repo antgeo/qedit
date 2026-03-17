@@ -4,16 +4,24 @@ This ruby gem uses the Monaco editor to create a editor exposed via the rails ro
 
 The editor can view the entire rails application for editing
 
-Supports Rails 7.1 or greater and Ruby 3.0
+**Requires** Rails >= 7.1 · Ruby >= 3.0 · Bundles Monaco Editor v0.55.1 (no CDN or extra dependencies)
 
-The latest version of Monaco is included
+## Security warning
+
+qedit exposes **full read and write access** to your entire Rails application directory over HTTP. It is intended exclusively for local development.
+
+- Never install qedit in a production or staging environment
+- Never run it on a server accessible to untrusted users
+- Always restrict it to the `development` group in your Gemfile
+
+The engine enforces this at runtime — all requests return 403 outside the development environment — but the Gemfile restriction is a second line of defence and prevents the gem from being deployed at all.
 
 ## Installation
 
-Add this line to your Rails application's `Gemfile`:
+Add qedit to the **development group only** in your `Gemfile`:
 
 ```ruby
-gem 'qedit'
+gem 'qedit', group: :development
 ```
 
 Then run:
@@ -57,16 +65,16 @@ Ensure you have Ruby installed, then run:
 gem build qedit.gemspec
 ```
 
-This produces a `qedit-0.1.0.gem` file in the current directory.
+This produces a `qedit-x.x.x.gem` file in the current directory.
 
 To install it locally:
 
 ```bash
-gem install qedit-0.1.0.gem
+gem install qedit-*.gem
 ```
 
 Or push it to RubyGems:
 
 ```bash
-gem push qedit-0.1.0.gem
+gem push qedit-*.gem
 ```

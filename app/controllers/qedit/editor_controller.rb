@@ -1,4 +1,5 @@
 require "open3"
+require "timeout"
 
 module Qedit
   class EditorController < ApplicationController
@@ -8,19 +9,28 @@ module Qedit
       render layout: false
     end
 
+    def ping
+      head :no_content
+    end
+
     def files
       tree = build_tree(Rails.root, Rails.root)
       render json: tree
     end
 
+    MAX_FILE_SIZE = 1.megabyte
+
     def show
       path = safe_path(params[:path])
+      raise Errno::EFBIG, "File too large to edit" if File.size(path) > MAX_FILE_SIZE
       content = File.read(path)
       render json: { content: content, language: language_for(path.to_s) }
     rescue Errno::ENOENT
       render json: { error: "File not found" }, status: :not_found
     rescue Errno::EACCES
       render json: { error: "Permission denied" }, status: :forbidden
+    rescue Errno::EFBIG
+      render json: { error: "File too large to edit (max 1MB)" }, status: :unprocessable_entity
     end
 
     def update
@@ -43,8 +53,7 @@ module Qedit
     def safe_path(param)
       full = Rails.root.join(param.to_s).expand_path
       unless full.to_s.start_with?(Rails.root.to_s + "/") || full.to_s == Rails.root.to_s
-        render json: { error: "Forbidden" }, status: :forbidden
-        raise ActionController::RoutingError, "Path traversal detected"
+        render json: { error: "Forbidden" }, status: :forbidden and return
       end
       full
     end
@@ -113,13 +122,17 @@ module Qedit
       "refactor"   => 1,
     }.freeze
 
+    RUBOCOP_TIMEOUT = 15
+
     def run_rubocop(full_path, content)
       relative = full_path.relative_path_from(Rails.root).to_s
-      stdout, _stderr, status = Open3.capture3(
-        *Qedit.configuration.rubocop_command.split, "--format", "json", "--stdin", relative,
-        stdin_data: content,
-        chdir: Rails.root.to_s
-      )
+      stdout, _stderr, status = Timeout.timeout(RUBOCOP_TIMEOUT) do
+        Open3.capture3(
+          *Qedit.configuration.rubocop_command.split, "--format", "json", "--stdin", relative,
+          stdin_data: content,
+          chdir: Rails.root.to_s
+        )
+      end
       return [] if status.exitstatus.to_i >= 2
 
       offenses = JSON.parse(stdout).dig("files", 0, "offenses") || []
@@ -134,7 +147,7 @@ module Qedit
           message:   o["message"]
         }
       end
-    rescue Errno::ENOENT, JSON::ParserError
+    rescue Timeout::Error, Errno::ENOENT, JSON::ParserError
       []
     end
   end
