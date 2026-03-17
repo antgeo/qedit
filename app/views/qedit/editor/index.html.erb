@@ -17,7 +17,7 @@
 
     #app {
       display: grid;
-      grid-template-rows: 40px 1fr;
+      grid-template-rows: 40px 35px 1fr;
       grid-template-columns: 260px 1fr;
       height: 100vh;
     }
@@ -70,8 +70,52 @@
     #btn-save:hover { background: #1177bb; }
     #btn-save:disabled { background: #444; color: #777; cursor: default; }
 
+    /* ── Tab bar ── */
+    #tab-bar {
+      display: flex;
+      align-items: stretch;
+      background: #2d2d2d;
+      border-bottom: 1px solid #3a3a3a;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: thin;
+      scrollbar-color: #555 transparent;
+    }
+
+    .tab {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 10px 0 12px;
+      min-width: 80px;
+      max-width: 200px;
+      font-size: 12px;
+      color: #999;
+      background: #2d2d2d;
+      border-right: 1px solid #3a3a3a;
+      cursor: pointer;
+      white-space: nowrap;
+      user-select: none;
+      flex-shrink: 0;
+    }
+    .tab:hover { background: #383838; color: #ccc; }
+    .tab.active { background: #1e1e1e; color: #fff; border-top: 2px solid #007acc; }
+
+    .tab .tab-name { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+    .tab .tab-dirty { color: #e9c46a; font-size: 11px; flex-shrink: 0; }
+    .tab .tab-close {
+      font-size: 15px;
+      line-height: 1;
+      color: #555;
+      padding: 1px 3px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+    .tab .tab-close:hover { background: #555; color: #fff; }
+
     /* ── Sidebar ── */
     #sidebar {
+      grid-row: 2 / -1;
       background: #252526;
       border-right: 1px solid #3a3a3a;
       overflow-y: auto;
@@ -149,6 +193,8 @@
       <button id="btn-save" disabled>Save</button>
     </div>
 
+    <div id="tab-bar"></div>
+
     <div id="sidebar">
       <div id="file-tree">
         <div class="tree-item" style="color:#555; font-size:12px; padding-left:12px;">Loading…</div>
@@ -180,8 +226,11 @@
       const FILE_URL  = BASE + "/file";
 
       let monacoEditor = null;
-      let currentPath  = null;
-      let isDirty      = false;
+
+      // Tab state
+      // tabs: Array<{ path: string, model: ITextModel, dirty: boolean }>
+      let tabs      = [];
+      let activeTab = null;
 
       const elCurrentFile = document.getElementById('current-file');
       const elStatusMsg   = document.getElementById('status-msg');
@@ -190,6 +239,7 @@
       const elEditorDiv   = document.getElementById('monaco-editor');
       const elPlaceholder = document.getElementById('editor-placeholder');
       const elLoading     = document.getElementById('loading-overlay');
+      const elTabBar      = document.getElementById('tab-bar');
 
       // ── Monaco init ──────────────────────────────────────────────────
       window.MonacoEnvironment = {
@@ -225,9 +275,10 @@
         });
 
         monacoEditor.onDidChangeModelContent(function() {
-          if (!isDirty) {
-            isDirty = true;
-            markDirty();
+          if (activeTab && !activeTab.dirty) {
+            activeTab.dirty = true;
+            renderTabs();
+            elBtnSave.disabled = false;
           }
         });
 
@@ -238,6 +289,99 @@
 
         loadFileTree();
       });
+
+      // ── Tab rendering ────────────────────────────────────────────────
+      function renderTabs() {
+        elTabBar.innerHTML = '';
+        tabs.forEach(function(tab) {
+          const el = document.createElement('div');
+          el.className = 'tab' + (tab === activeTab ? ' active' : '');
+          el.dataset.path = tab.path;
+
+          const nameEl = document.createElement('span');
+          nameEl.className = 'tab-name';
+          nameEl.textContent = tab.path.split('/').pop();
+          nameEl.title = tab.path;
+
+          const closeEl = document.createElement('span');
+          closeEl.className = 'tab-close';
+          closeEl.textContent = '×';
+          closeEl.addEventListener('click', function(e) {
+            closeTab(tab, e);
+          });
+
+          el.appendChild(nameEl);
+          if (tab.dirty) {
+            const dirtyEl = document.createElement('span');
+            dirtyEl.className = 'tab-dirty';
+            dirtyEl.textContent = '●';
+            el.appendChild(dirtyEl);
+          }
+          el.appendChild(closeEl);
+
+          el.addEventListener('click', function() {
+            switchToTab(tab);
+          });
+
+          elTabBar.appendChild(el);
+        });
+      }
+
+      // ── Tab management ───────────────────────────────────────────────
+      function switchToTab(tab) {
+        activeTab = tab;
+        monacoEditor.setModel(tab.model);
+
+        elPlaceholder.style.display = 'none';
+        elEditorDiv.style.display   = 'block';
+
+        elCurrentFile.textContent = tab.path;
+        elBtnSave.disabled = !tab.dirty;
+        setStatus('');
+
+        // Sync sidebar highlight
+        document.querySelectorAll('.tree-item.active').forEach(function(e) {
+          e.classList.remove('active');
+        });
+        const sidebarItem = elTree.querySelector('[data-path="' + tab.path + '"]');
+        if (sidebarItem) sidebarItem.classList.add('active');
+
+        renderTabs();
+        // Scroll active tab into view
+        const activeEl = elTabBar.querySelector('.tab.active');
+        if (activeEl) activeEl.scrollIntoView({ inline: 'nearest' });
+      }
+
+      function closeTab(tab, event) {
+        event.stopPropagation();
+        if (tab.dirty) {
+          if (!confirm('Discard unsaved changes to ' + tab.path.split('/').pop() + '?')) return;
+        }
+
+        tab.model.dispose();
+        const idx = tabs.indexOf(tab);
+        tabs.splice(idx, 1);
+
+        if (tab === activeTab) {
+          if (tabs.length > 0) {
+            // Prefer the tab to the right, fall back to left
+            switchToTab(tabs[idx] || tabs[idx - 1]);
+          } else {
+            activeTab = null;
+            elPlaceholder.style.display = '';
+            elEditorDiv.style.display   = 'none';
+            elCurrentFile.textContent   = 'No file open';
+            elBtnSave.disabled          = true;
+            setStatus('');
+            document.querySelectorAll('.tree-item.active').forEach(function(e) {
+              e.classList.remove('active');
+            });
+            renderTabs();
+          }
+        } else {
+          renderTabs();
+        }
+      }
 
       // ── File tree ────────────────────────────────────────────────────
       function loadFileTree() {
@@ -294,18 +438,15 @@
       }
 
       // ── File open / save ─────────────────────────────────────────────
-      function openFile(path, el) {
-        if (isDirty && currentPath) {
-          if (!confirm('Discard unsaved changes to ' + currentPath + '?')) return;
+      function openFile(path) {
+        // If already open, just switch to that tab
+        const existing = tabs.find(function(t) { return t.path === path; });
+        if (existing) {
+          switchToTab(existing);
+          return;
         }
 
-        document.querySelectorAll('.tree-item.active').forEach(function(e) {
-          e.classList.remove('active');
-        });
-        el.classList.add('active');
-
         elLoading.classList.add('visible');
-        elCurrentFile.textContent = path;
         setStatus('');
 
         fetch(FILE_URL + '?path=' + encodeURIComponent(path))
@@ -313,32 +454,22 @@
           .then(data => {
             if (data.error) { setStatus('Error: ' + data.error, true); return; }
 
-            elPlaceholder.style.display = 'none';
-            elEditorDiv.style.display   = 'block';
-
-            const model = monaco.editor.createModel(
-              data.content,
-              data.language
-            );
-            const old = monacoEditor.getModel();
-            monacoEditor.setModel(model);
-            if (old) old.dispose();
-
-            currentPath = path;
-            isDirty     = false;
-            markClean();
+            const model = monaco.editor.createModel(data.content, data.language);
+            const tab   = { path: path, model: model, dirty: false };
+            tabs.push(tab);
+            switchToTab(tab);
           })
           .catch(() => setStatus('Failed to load file', true))
           .finally(() => elLoading.classList.remove('visible'));
       }
 
       function saveCurrentFile() {
-        if (!currentPath || !monacoEditor) return;
+        if (!activeTab || !monacoEditor) return;
         elBtnSave.disabled = true;
         setStatus('Saving…');
 
         const body = new URLSearchParams({
-          path:    currentPath,
+          path:    activeTab.path,
           content: monacoEditor.getValue()
         });
 
@@ -350,8 +481,8 @@
           .then(r => r.json())
           .then(data => {
             if (data.ok) {
-              isDirty = false;
-              markClean();
+              activeTab.dirty = false;
+              renderTabs();
               setStatus('Saved ✓');
               setTimeout(() => setStatus(''), 2000);
             } else {
@@ -368,16 +499,6 @@
       elBtnSave.addEventListener('click', saveCurrentFile);
 
       // ── Helpers ──────────────────────────────────────────────────────
-      function markDirty() {
-        elBtnSave.disabled = false;
-        elCurrentFile.textContent = (currentPath || '') + ' ●';
-      }
-
-      function markClean() {
-        elBtnSave.disabled = true;
-        elCurrentFile.textContent = currentPath || '';
-      }
-
       function setStatus(msg, isError) {
         elStatusMsg.textContent = msg;
         elStatusMsg.style.color = isError ? '#f48771' : '#4ec9b0';
