@@ -114,7 +114,7 @@ module Qedit
     def run_rubocop(full_path, content)
       relative = full_path.relative_path_from(Rails.root).to_s
       stdout, _stderr, status = Open3.capture3(
-        "rubocop", "--format", "json", "--stdin", relative,
+        *Qedit.configuration.rubocop_command.split, "--format", "json", "--stdin", relative,
         stdin_data: content,
         chdir: Rails.root.to_s
       )

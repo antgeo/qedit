@@ -10,10 +10,11 @@ module Qedit
       vendor/bundle
     ].freeze
 
-    attr_accessor :excluded_paths
+    attr_accessor :excluded_paths, :rubocop_command
 
     def initialize
-      @excluded_paths = EXCLUDED_PATHS.dup
+      @excluded_paths  = EXCLUDED_PATHS.dup
+      @rubocop_command = "rubocop"
     end
   end
 end
