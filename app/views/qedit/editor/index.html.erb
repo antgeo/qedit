@@ -356,6 +356,7 @@
         const activeEl = elTabBar.querySelector('.tab.active');
         if (activeEl) activeEl.scrollIntoView({ inline: 'nearest' });
 
+        console.log('[switchToTab] calling lintModel for', tab.path);
         lintModel(tab);
       }
 
