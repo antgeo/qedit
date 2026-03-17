@@ -473,7 +473,7 @@
 
       function lintModel(tab) {
         if (!tab || !tab.model) return;
-        if (tab.model.getLanguageId() !== 'ruby') {
+        if (!tab.path.match(/\.rb$/)) {
           monaco.editor.setModelMarkers(tab.model, 'rubocop', []);
           return;
         }
