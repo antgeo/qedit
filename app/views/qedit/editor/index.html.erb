@@ -224,6 +224,7 @@
       const BASE      = "<%= qedit.root_path.chomp('/') %>";
       const FILES_URL = BASE + "/files";
       const FILE_URL  = BASE + "/file";
+      const LINT_URL  = BASE + "/lint";
 
       let monacoEditor = null;
 
@@ -279,6 +280,10 @@
             activeTab.dirty = true;
             renderTabs();
             elBtnSave.disabled = false;
+          }
+          if (activeTab) {
+            clearTimeout(activeTab.lintTimer);
+            activeTab.lintTimer = setTimeout(function() { lintModel(activeTab); }, 600);
           }
         });
 
@@ -350,6 +355,8 @@
         // Scroll active tab into view
         const activeEl = elTabBar.querySelector('.tab.active');
         if (activeEl) activeEl.scrollIntoView({ inline: 'nearest' });
+
+        lintModel(tab);
       }
 
       function closeTab(tab, event) {
@@ -358,6 +365,7 @@
           if (!confirm('Discard unsaved changes to ' + tab.path.split('/').pop() + '?')) return;
         }
 
+        clearTimeout(tab.lintTimer);
         tab.model.dispose();
         const idx = tabs.indexOf(tab);
         tabs.splice(idx, 1);
@@ -455,12 +463,40 @@
             if (data.error) { setStatus('Error: ' + data.error, true); return; }
 
             const model = monaco.editor.createModel(data.content, data.language);
-            const tab   = { path: path, model: model, dirty: false };
+            const tab   = { path: path, model: model, dirty: false, lintTimer: null };
             tabs.push(tab);
             switchToTab(tab);
           })
           .catch(() => setStatus('Failed to load file', true))
           .finally(() => elLoading.classList.remove('visible'));
+      }
+
+      function lintModel(tab) {
+        if (!tab || !tab.model) return;
+        if (tab.model.getLanguageId() !== 'ruby') {
+          monaco.editor.setModelMarkers(tab.model, 'rubocop', []);
+          return;
+        }
+        fetch(LINT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ path: tab.path, content: tab.model.getValue() }).toString()
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(diagnostics) {
+            if (tab.model.isDisposed()) return;
+            monaco.editor.setModelMarkers(tab.model, 'rubocop', diagnostics.map(function(d) {
+              return {
+                startLineNumber: d.line,
+                startColumn:     d.column,
+                endLineNumber:   d.line,
+                endColumn:       d.endColumn,
+                message:         d.message,
+                severity:        d.severity
+              };
+            }));
+          })
+          .catch(function() {});
       }
 
       function saveCurrentFile() {

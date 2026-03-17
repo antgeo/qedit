@@ -1,3 +1,5 @@
+require "open3"
+
 module Qedit
   class EditorController < ApplicationController
     def index
@@ -26,6 +28,12 @@ module Qedit
       render json: { ok: true }
     rescue Errno::EACCES
       render json: { error: "Permission denied" }, status: :forbidden
+    end
+
+    def lint
+      path    = safe_path(params[:path])
+      content = params[:content].to_s
+      render json: run_rubocop(path, content)
     end
 
     private
@@ -93,6 +101,39 @@ module Qedit
     def language_for(path)
       ext = File.extname(path).delete_prefix(".")
       LANGUAGE_MAP[ext] || "plaintext"
+    end
+
+    RUBOCOP_SEVERITY_MAP = {
+      "fatal"      => 8,
+      "error"      => 8,
+      "warning"    => 4,
+      "convention" => 2,
+      "refactor"   => 1,
+    }.freeze
+
+    def run_rubocop(full_path, content)
+      relative = full_path.relative_path_from(Rails.root).to_s
+      stdout, _stderr, status = Open3.capture3(
+        "rubocop", "--format", "json", "--stdin", relative,
+        stdin_data: content,
+        chdir: Rails.root.to_s
+      )
+      return [] if status.exitstatus.to_i >= 2
+
+      offenses = JSON.parse(stdout).dig("files", 0, "offenses") || []
+      offenses.map do |o|
+        loc = o["location"]
+        col = loc["start_column"] || loc["column"]
+        {
+          line:      loc["line"],
+          column:    col,
+          endColumn: col + (loc["length"] || 1),
+          severity:  RUBOCOP_SEVERITY_MAP.fetch(o["severity"], 2),
+          message:   o["message"]
+        }
+      end
+    rescue Errno::ENOENT, JSON::ParserError
+      []
     end
   end
 end
