@@ -4,7 +4,7 @@ module Qedit
   class EditorController < ApplicationController
     def index
       stdout, _stderr, status = Open3.capture3("git", "-C", Rails.root.to_s, "branch", "--show-current")
-      @git_branch = status.success? ? stdout.strip.presence : nil
+      @git_branch = status.success? ? stdout.strip.presence : "Git repo not found"
       render layout: false
     end
 
