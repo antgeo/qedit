@@ -472,18 +472,21 @@
       }
 
       function lintModel(tab) {
-        if (!tab || !tab.model) return;
+        if (!tab || !tab.model) { console.log('[lint] no tab/model'); return; }
         if (!tab.path.match(/\.rb$/)) {
+          console.log('[lint] skipping non-ruby:', tab.path);
           monaco.editor.setModelMarkers(tab.model, 'rubocop', []);
           return;
         }
+        console.log('[lint] fetching', LINT_URL, 'for', tab.path);
         fetch(LINT_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({ path: tab.path, content: tab.model.getValue() }).toString()
         })
-          .then(function(r) { return r.json(); })
+          .then(function(r) { console.log('[lint] response status:', r.status); return r.json(); })
           .then(function(diagnostics) {
+            console.log('[lint] diagnostics:', diagnostics);
             if (tab.model.isDisposed()) return;
             monaco.editor.setModelMarkers(tab.model, 'rubocop', diagnostics.map(function(d) {
               return {
@@ -496,7 +499,7 @@
               };
             }));
           })
-          .catch(function() {});
+          .catch(function(e) { console.log('[lint] error:', e); });
       }
 
       function saveCurrentFile() {
